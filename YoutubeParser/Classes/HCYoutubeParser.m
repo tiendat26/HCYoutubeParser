@@ -8,7 +8,10 @@
 
 #import "HCYoutubeParser.h"
 
-#define kYoutubeInfoURL      @"http://www.youtube.com/get_video_info?video_id="
+#define kYoutubeInfoURL      @"http://www.youtube.com/get_video_info?&video_id=%@%@&ps=default&eurl=&gl=US&hl=en"
+
+
+//@"http://www.youtube.com/get_video_info?video_id="
 #define kYoutubeThumbnailURL @"http://img.youtube.com/vi/%@/%@.jpg"
 #define kYoutubeDataURL      @"http://gdata.youtube.com/feeds/api/videos/%@?alt=json"
 #define kUserAgent @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.4 (KHTML, like Gecko) Chrome/22.0.1229.79 Safari/537.4"
@@ -105,82 +108,99 @@
 
 + (NSDictionary *)h264videosWithYoutubeID:(NSString *)youtubeID {
     if (youtubeID) {
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", kYoutubeInfoURL, youtubeID]];
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-        [request setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
-        [request setHTTPMethod:@"GET"];
+        NSArray *arrayUrlParam = [NSArray arrayWithObjects:@"&el=embedded", @"&el=detailpage", @"&el=vevo", @"", nil];
+        
+        for (NSString *elParam in arrayUrlParam) {
+            NSString *urlStr = [NSString stringWithFormat:kYoutubeInfoURL, youtubeID, elParam];
+            
+            
+            NSURL *url = [NSURL URLWithString:urlStr];
+            NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+            [request setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
+            [request setHTTPMethod:@"GET"];
 
-        NSURLResponse *response = nil;
-        NSError *error = nil;
-        NSData *responseData = [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&error];
+            NSURLResponse *response = nil;
+            NSError *error = nil;
+            NSData *responseData = [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&error];
 
-        if (!error) {
-            NSString *responseString = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
+            if (!error) {
+                NSString *responseString = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
 
-            NSMutableDictionary *parts = [responseString dictionaryFromQueryStringComponents];
-
-            if (parts) {
-                NSString *fmtStreamMapString = [[parts objectForKey:@"url_encoded_fmt_stream_map"] objectAtIndex:0];
-                if (fmtStreamMapString.length > 0) {
-
-                    NSArray *fmtStreamMapArray = [fmtStreamMapString componentsSeparatedByString:@","];
-                    NSMutableDictionary *videoDictionary = [NSMutableDictionary dictionary];
-                    
-                    for (NSString *videoEncodedString in fmtStreamMapArray) {
-                        NSMutableDictionary *videoComponents = [videoEncodedString dictionaryFromQueryStringComponents];
-                        NSString *type = [[[videoComponents objectForKey:@"type"] objectAtIndex:0] stringByDecodingURLFormat];
-                        NSString *signature = nil;
-
-                        if (![videoComponents objectForKey:@"stereo3d"]) {
-                            if ([videoComponents objectForKey:@"itag"]) {
-                                signature = [[videoComponents objectForKey:@"itag"] objectAtIndex:0];
-                            }
-
-                            if (signature && [type rangeOfString:@"mp4"].length > 0) {
-                                NSString *url = [[[videoComponents objectForKey:@"url"] objectAtIndex:0] stringByDecodingURLFormat];
-                                url = [NSString stringWithFormat:@"%@&signature=%@", url, signature];
-
-                                NSString *quality = [[[videoComponents objectForKey:@"quality"] objectAtIndex:0] stringByDecodingURLFormat];
-                                if ([videoComponents objectForKey:@"stereo3d"] && [[videoComponents objectForKey:@"stereo3d"] boolValue]) {
-                                    quality = [quality stringByAppendingString:@"-stereo3d"];
-                                }
-                                if([videoDictionary valueForKey:quality] == nil) {
-                                    [videoDictionary setObject:url forKey:quality];
-                                }
-                            }
-                        }
-                    }
-                    
-                    // add some extra information about this video to the dictionary we pass back to save on the amounts of network requests
-                    if (videoDictionary.count > 0)
-                    {
-                        NSMutableDictionary *optionsDict = [NSMutableDictionary dictionary];
-                        NSArray *keys = @[//@"author", // youtube channel name
-                                          //@"avg_rating", // average ratings on yt when downloaded
-                                          @"iurl", //@"iurlmaxres", @"iurlsd", // thumbnail urls
-                                          //@"keywords", // author defined keywords
-                                          @"length_seconds", // total duration in seconds
-                                          @"title", // video title
-                                          //@"video_id"
-                                          ]; // youtube id
-                        
-                        for (NSString *key in keys)
-                        {
-                            [optionsDict setObject:parts[key][0] forKey:key]; // [0] because we want the object and not the array
-                        }
-                        
-                        [videoDictionary setObject:optionsDict forKey:@"moreInfo"];
-                    }
-                    
-                    return videoDictionary;
+                if ([responseString rangeOfString:@"token"].location == NSNotFound) {
+                    ///skip current loop, go to next item
+                    NSLog(@"FAIL, next loop");
+                    continue;
                 }
-                // Check for live data
-                else if ([parts objectForKey:@"live_playback"] != nil && [parts objectForKey:@"hlsvp"] != nil && [[parts objectForKey:@"hlsvp"] count] > 0) {
-                    return @{ @"live": [parts objectForKey:@"hlsvp"][0] };
+                
+                NSMutableDictionary *parts = [responseString dictionaryFromQueryStringComponents];
+
+                if (parts) {
+                    NSString *fmtStreamMapString = [[parts objectForKey:@"url_encoded_fmt_stream_map"] objectAtIndex:0];
+                    if (fmtStreamMapString.length > 0) {
+
+                        NSArray *fmtStreamMapArray = [fmtStreamMapString componentsSeparatedByString:@","];
+                        NSMutableDictionary *videoDictionary = [NSMutableDictionary dictionary];
+                        
+                        for (NSString *videoEncodedString in fmtStreamMapArray) {
+                            NSMutableDictionary *videoComponents = [videoEncodedString dictionaryFromQueryStringComponents];
+                            NSString *type = [[[videoComponents objectForKey:@"type"] objectAtIndex:0] stringByDecodingURLFormat];
+                            NSString *signature = nil;
+
+                            if (![videoComponents objectForKey:@"stereo3d"]) {
+                                if ([videoComponents objectForKey:@"itag"]) {
+                                    signature = [[videoComponents objectForKey:@"itag"] objectAtIndex:0];
+                                }
+
+                                if (signature && [type rangeOfString:@"mp4"].length > 0) {
+                                    NSString *url = [[[videoComponents objectForKey:@"url"] objectAtIndex:0] stringByDecodingURLFormat];
+                                    url = [NSString stringWithFormat:@"%@&signature=%@", url, signature];
+
+                                    NSString *quality = [[[videoComponents objectForKey:@"quality"] objectAtIndex:0] stringByDecodingURLFormat];
+                                    if ([videoComponents objectForKey:@"stereo3d"] && [[videoComponents objectForKey:@"stereo3d"] boolValue]) {
+                                        quality = [quality stringByAppendingString:@"-stereo3d"];
+                                    }
+                                    if([videoDictionary valueForKey:quality] == nil) {
+                                        [videoDictionary setObject:url forKey:quality];
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // add some extra information about this video to the dictionary we pass back to save on the amounts of network requests
+                        if (videoDictionary.count > 0)
+                        {
+                            NSMutableDictionary *optionsDict = [NSMutableDictionary dictionary];
+                            NSArray *keys = @[//@"author", // youtube channel name
+                                              //@"avg_rating", // average ratings on yt when downloaded
+                                              @"iurl", //@"iurlmaxres", @"iurlsd", // thumbnail urls
+                                              //@"keywords", // author defined keywords
+                                              @"length_seconds", // total duration in seconds
+                                              @"title", // video title
+                                              //@"video_id"
+                                              ]; // youtube id
+                            
+                            for (NSString *key in keys)
+                            {
+                                [optionsDict setObject:parts[key][0] forKey:key]; // [0] because we want the object and not the array
+                            }
+                            
+                            [videoDictionary setObject:optionsDict forKey:@"moreInfo"];
+                        }
+                        
+                        return videoDictionary;
+                    }
+                    // Check for live data
+                    else if ([parts objectForKey:@"live_playback"] != nil && [parts objectForKey:@"hlsvp"] != nil && [[parts objectForKey:@"hlsvp"] count] > 0) {
+                        return @{ @"live": [parts objectForKey:@"hlsvp"][0] };
+                    }
                 }
             }
+            
         }
+        
+        
     }
+    
     return nil;
 }
 
