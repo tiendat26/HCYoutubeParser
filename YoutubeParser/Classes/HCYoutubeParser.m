@@ -210,6 +210,22 @@
     return [self h264videosWithYoutubeID:youtubeID];
 }
 
++ (void)h264videosWithYoutubeID:(NSString *)youtubeID
+                   completeBlock:(void(^)(NSDictionary *videoDictionary, NSError *error))completeBlock {
+    if (youtubeID) {
+        dispatch_queue_t queue = dispatch_queue_create("me.hiddencode.yt.backgroundqueue", 0);
+        dispatch_async(queue, ^{
+            NSDictionary *dict = [[self class] h264videosWithYoutubeID:youtubeID];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completeBlock(dict, nil);
+            });
+        });
+    }
+    else {
+        completeBlock(nil, [NSError errorWithDomain:@"me.hiddencode.yt-parser" code:1001 userInfo:@{ NSLocalizedDescriptionKey: @"Invalid YouTube URL" }]);
+    }
+}
+
 + (void)h264videosWithYoutubeURL:(NSURL *)youtubeURL
                    completeBlock:(void(^)(NSDictionary *videoDictionary, NSError *error))completeBlock {
     NSString *youtubeID = [self youtubeIDFromYoutubeURL:youtubeURL];
